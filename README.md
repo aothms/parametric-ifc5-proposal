@@ -1,48 +1,195 @@
-# IFC 5 development repository
+IFC5 parametrics investigation
+==============================
 
-Welcome to the **IFC 5 alpha Examples**!  These examples are the result of years of work by many volunteers. The IFC implementer forum, the IFC 5 taskforce, and the wider community of interested implementers, have been working on these examples inntensively. This repository contains initial examples for the IFC 5 developments.
+This is an investigation towards enriching IFC5 datasets with procedural functions in javascript.
 
-## Disclaimer: Early Stage Examples
+**NB1** This proposal currently has no official status in any community whatsoever, this is purely out of academic interest.
 
-Please note that these examples are **preliminary** and represent a direction of working for IFC 5. There are several **important caveats** to keep in mind:
+**NB2** Due to lock in into a specific language, heaviness of embedding a JS runtime, additional complexity, this is envisioned strictly as an optional module on top of IFC5.
 
-1. **Incomplete Features**: Many features of IFC 5 have not been fully explored or implemented in these examples. 
-2. **Schema Changes**: IFC 5 is still evolving, and future updates to the development will require revisions to these examples.
-3. **Limited Validation**: These examples have undergone significant validation and testing. However, they are still incomplete.
-4. **Known Issues**: There are known and unknown issues and incomplete sections within the examples.
-5. **Development in Progress**: Further work is needed to improve the quality, accuracy, and completeness of these examples.
+## Rationale
 
-## Viewer
+### Why Javascript
 
-A viewer to visualize and explore the files is available under /docs/viewer. It is also live on https://ifc5.technical.buildingsmart.org/viewer/
-The viewer source code is MIT licensed. The intent is to help users understand the examples; and to help software developers to understand how to implement the composition of the objects.
+- Ecmascript interpreters can be relatively easily embedded into host applications
+- Excelled developer familiarity and tooling
+- Matches the IFC5 underlying data serialization model (JSON)
+- We would all love more declarative approaches, but express' function language is also imperative; making porting the logic straightforward to port
 
-## Schema
+### Why IFC5
 
-The schema sourece is defined using typespec and can be found under /schema.
-The JSON schema of IFC, and extensions will be published on ifcx.dev
+- IFC5 prioritizes explicit data for robustness, but additional intelligence might still be desirable as supplementary streams of information in certain workflows
+- The collaborative model of composing multiple layers allows for the scripts to operate on data from other layers and therefore from other stakeholders
+- IFC5 has a very clean data model of trees post-composition. How to reason about insertion and replacement is self-evident as opposed to the complex graphs in IFC4. THe bottom-to-top execution order makes the interaction between multiple scripts in the tree also self-evident.
+- The ECS-inspired extensibility enables the model to be visualized in any IFC5 viewer; except for the parametric behaviour which is just rendered as normal attribute data. 
 
-## Future Development
+## Envisioned application areas:
 
-Further **documentation will follow soon**. 
-We are actively working on enhancing these examples, addressing known issues. Contributions, feedback, and collaboration are welcome! If you would like to contribute or discuss the development of these examples, feel free to open an issue.
- 
+- **Generation of data** New nodes could be inserted into the graph or new attributes can be derived from source data
+- **Validation of data** Source data can be validated by a function
+- **Migration of data** Migration rules can be encoded in a schema for compatibility between schema editions
 
-## Usage
+## Function distribution
 
-You are welcome to clone or download this repository, but please bear in mind the current limitations and treat these examples as a **work in progress**. 
-Do not create derivatives of these examples, but please actively contribute with PRs and opening issues.
+Functions could be distributed in:
 
-## Feedback and Contributions
+- End-user models for encoding parametric behaviour of elements
+- bSDD like registries
+- Official schemas for constraints and migration rules
+- IDS? Based on IDS applicability the requirement could be encoded in a JS function with a post-composition subtree of the model as context
+- NPM-like mechanism to distribute a 'standard library' of functions to tap into.
 
-We highly encourage feedback from the community and contributions from those familiar with IFC 5 or similar standards. Please adhere to the buildingSMART behavior policy when discussing on GitHub and the forums.  
+## Example
 
----
+Based on a simplified horizontal alignment (only linear and composite curve), an element is positioned multiple times along the alignment curve in a similar fashion as IFC4.3 linear placement.
 
-**Please Note**: The examples provided here are for **educational and testing purposes** only. They are not suitable for production use without further refinement.
+![](param.png)
 
----
+Parametric behaviour is encoded using standard schema constructs as a sub-primitive of the element it operates on.
 
-Thank you for your interest, and we look forward to building out these examples together!
+```json
 
----
+```
+
+The function is minified so that it fits in a single line string (`npx terser fn.js -o fnm.js -c -m -f quote_style=1`).
+
+```js
+function RepeatElements(codeObject, localPrim, fullTree) {
+
+    const getAttr = (node, key, dflt = undefined) =>
+        node && node.attributes && key in node.attributes ? node.attributes[key] : dflt;
+
+    const isClass = code => node => getAttr(node, "bsi::ifc::class::code") === code;
+
+    function* traverse(node) {
+        if (!node) return;
+        yield node;
+        for (const c of node.children || []) yield* traverse(c);
+    }
+
+    function makePlacementMatrix(x, y, z, yaw) {
+        const c = Math.cos(yaw), s = Math.sin(yaw);
+        return [
+            [c, s, 0, 0],
+            [-s, c, 0, 0],
+            [0, 0, 1, 0],
+            [x, y, z, 1]
+        ];
+    }
+
+    function buildHorizontalCurve(alignmentNode) {
+        const segs = (alignmentNode.children || [])
+            .filter(isClass("IfcAlignmentSegment"))
+            .map(c => {
+                const pfx = "bsi::ifc::alignmenthorizontalsegment::";
+                const geom = getAttr(c, `${pfx}GeometryType`, "LINE");
+                const L = getAttr(c, `${pfx}SegmentLength`, 0)
+                const a0 = getAttr(c, `${pfx}StartDirection`, 0)
+                const P0 = getAttr(c, `${pfx}StartPoint`, [0, 0, 0]);
+                const R = getAttr(c, `${pfx}StartRadiusOfCurvature`, 0);
+                return { geom, L, a0, P0, R };
+            })
+            .filter(s => s.L > 0);
+
+        const parts = [];
+        let acc = 0;
+
+        for (const s of segs) {
+            if (s.geom === "LINE") {
+                const dir = s.a0;
+                const ux = Math.cos(dir), uy = Math.sin(dir);
+                const yaw = Math.atan2(uy, ux);
+                const evalLine = u => {
+                    const x = s.P0[0] + ux * u;
+                    const y = s.P0[1] + uy * u;
+                    const z = s.P0[2] || 0;
+                    return { pos: [x, y, z], tangent: [ux, uy, 0], yaw };
+                };
+                parts.push({ kind: "line", L: s.L, start: acc, end: acc + s.L, evalLocal: evalLine });
+            } else if (s.geom === "CIRCULARARC") {
+                const R = s.R; // signed; R<0 => clockwise
+                if (R === 0) continue; // skip degenerate
+                const left = [-Math.sin(s.a0), Math.cos(s.a0)]; // left normal of start direction
+                const Cx = s.P0[0] + left[0] * R;
+                const Cy = s.P0[1] + left[1] * R;
+                const Cz = s.P0[2] || 0;
+                // vector from center to start
+                const r0x = s.P0[0] - Cx, r0y = s.P0[1] - Cy;
+                const evalArc = u => {
+                    const delta = u / R; // signed; negative for clockwise when R<0
+                    const rot2 = (x, y, ang) => {
+                        const c = Math.cos(ang), s = Math.sin(ang);
+                        return [c * x - s * y, s * x + c * y];
+                    };
+
+                    const [rx, ry] = rot2(r0x, r0y, delta);
+                    const x = Cx + rx, y = Cy + ry, z = Cz;
+                    // tangent = sign(R) * perp_left(radius) and normalized
+                    const signR = Math.sign(R) || 1;
+                    const len = Math.hypot(rx, ry) || Math.abs(R);
+                    const tx = signR * (-ry / len);
+                    const ty = signR * (rx / len);
+                    const yaw = Math.atan2(ty, tx);
+                    return { pos: [x, y, z], tangent: [tx, ty, 0], yaw };
+                };
+                parts.push({ kind: "arc", L: s.L, start: acc, end: acc + s.L, evalLocal: evalArc });
+            } else {
+                throw Error(`Unsupported geometry type: ${s.geom}`);
+            }
+            acc += s.L;
+        }
+
+        function totalLength() { return acc; }
+
+        function evalAt(S) {
+            for (const p of parts) {
+                if (S <= p.end || p === parts[parts.length - 1]) {
+                    return p.evalLocal(S - p.start);
+                }
+            }
+        }
+
+        return { totalLength, evalAt };
+    }
+
+    const spacing = getAttr(codeObject, "advanced_properties::spacing", 1.0);
+    const ref = getAttr(codeObject, "advanced_properties::repeating_element::ref", undefined);
+
+    const n = Array.from(traverse(fullTree)).filter(isClass("IfcAlignmentHorizontal"))[0];
+    const curve = buildHorizontalCurve(n);
+    const L = curve.totalLength();
+
+    const elements = [];
+    for (let s = 0; s <= L + 1e-9; s += spacing) {
+        const { pos, yaw } = curve.evalAt(s);
+        elements.push({
+            "path": crypto.randomUUID(),
+            "inherits": {
+                "ref": ref
+            },
+            "attributes": {
+                "usd::xformop": {
+                    "transform": makePlacementMatrix(pos[0], pos[1], pos[2] || 0, yaw)
+                }
+            }
+        });
+    }
+
+    return {
+        "header": {
+            "id": crypto.randomUUID(),
+            "version": "ifcx_alpha"
+        },
+        "data": elements,
+        "schemas": {},
+        "imports": [
+            {
+                "uri": "https://ifcx.dev/@standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx"
+            },
+            {
+                "uri": "https://ifcx.dev/@openusd.org/usd@v1.ifcx"
+            }
+        ]
+    }
+}
+```
