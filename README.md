@@ -45,7 +45,7 @@ Functions could be distributed in:
 
 ## Example
 
-Based on a simplified horizontal alignment (only linear and composite curve), an element is positioned multiple times along the alignment curve in a similar fashion as IFC4.3 linear placement.
+Based on a simplified horizontal alignment (only linear and circular arc), an element is positioned multiple times along the alignment curve in a similar fashion as IFC4.3 linear placement.
 
 ![](param.png)
 
