@@ -425,6 +425,26 @@ function traverseTree(path: ComposedObject[], parent, pathMapping) {
     (node.children || []).forEach(child => traverseTree([child, ...path], elem || parent, pathMapping));
 }
 
+type NodeWithDepth = [depth: number, node: ComposedObject, parent: ComposedObject | null];
+
+function collectByType(
+    className: string,
+    classValue: unknown,
+    node: ComposedObject,
+    depth: number = 0,
+    _records: NodeWithDepth[] | null = null,
+    _parent: ComposedObject | null = null
+  ) : NodeWithDepth[]
+  {
+    const records : NodeWithDepth[] = _records || [];
+    if (HasAttr(node, className) && node.attributes[className] == classValue) {
+        records.push([depth, node, _parent]);
+    }
+    (node.children || []).forEach(child => collectByType(className, classValue, child, depth + 1, records, node));
+
+    return records;
+  }
+
 function encodeHtmlEntities(str) {
     const div = document.createElement('div');
     div.textContent = str;
@@ -522,7 +542,7 @@ function buildDomTree(prim, node, pathMapping, root=null) {
     (prim.children || []).forEach(p => buildDomTree(p, elem, pathMapping, root || prim));
 }
 
-export async function composeAndRender() {
+export async function composeAndRender(secondPass : boolean = false) {
     if (scene) {
         // @todo does this actually free up resources?
         // retain only the lights
@@ -558,6 +578,35 @@ export async function composeAndRender() {
     traverseTree([tree], scene, pathMapping);
     currentPathMapping = pathMapping;
     rootPrim = tree;
+
+    let codeObjects : NodeWithDepth[] = [];
+    if (!secondPass) {
+        // remove generated layers
+        datas = datas.filter(([nm, _]) => nm !== "_GENERATED");
+        // find dynamic code objects
+        codeObjects = collectByType("parametrics::class::code", "CodeObject", tree);
+    }
+    // Sort bottom to top, so that mutations are propagated to higher level function objects
+    codeObjects.sort((a : NodeWithDepth, b : NodeWithDepth) => {
+        return b[0] - a[0];
+    });
+    codeObjects.forEach((obj : NodeWithDepth) => {
+        const fnStr : string = obj[1].attributes['parametrics::CodeObject::code'];
+        // @nb note that the parens are important here because they turn the function
+        // declaration into an expression so that the function is returned as opposed
+        // to added to the scope based on name
+
+        // @todo we don't actually look at the input/output specification
+        const layer = eval(`(${fnStr})`)(obj[1], obj[2], tree);
+        datas.splice(0, 0, ["_GENERATED", layer as IfcxFile]);
+    });
+
+    if (codeObjects.length > 0) {
+        // re-compose with added dynamic layers
+        createLayerDom();
+        await composeAndRender(true);
+        return;
+    }
 
     if (autoCamera) {
         const boundingBox = new THREE.Box3();
