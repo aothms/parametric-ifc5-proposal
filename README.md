@@ -7,6 +7,10 @@ This is an investigation towards enriching IFC5 datasets with procedural functio
 
 **NB2** Due to lock in into a specific language, heaviness of embedding a JS runtime, additional complexity, this is envisioned strictly as an optional module on top of IFC5.
 
+Try live at: https://aothms.github.io/parametric-ifc5-proposal/viewer/
+
+Model: https://raw.githubusercontent.com/aothms/parametric-ifc5-proposal/refs/heads/parametrics-proposal/examples/parametrics/parametrically-generated-along-alignment-curve.ifcx
+
 ## Rationale
 
 ### Why Javascript
