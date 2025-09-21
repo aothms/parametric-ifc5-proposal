@@ -12,9 +12,9 @@ This is an investigation towards enriching IFC5 datasets with procedural functio
 ### Why Javascript
 
 - Ecmascript interpreters can be relatively easily embedded into host applications
-- Excelled developer familiarity and tooling
+- Excellent developer familiarity and tooling
 - Matches the IFC5 underlying data serialization model (JSON)
-- We would all love more declarative approaches, but express' function language is also imperative; making porting the logic straightforward to port
+- We would all love more declarative approaches, but express' function language is also imperative; making porting the logic from ifc4.x versions more straightforward
 
 ### Why IFC5
 
@@ -45,10 +45,47 @@ Based on a simplified horizontal alignment (only linear and composite curve), an
 
 ![](param.png)
 
-Parametric behaviour is encoded using standard schema constructs as a sub-primitive of the element it operates on.
+Parametric behaviour is encoded using standard schema constructs as a sub-primitive of the element it operates on. The first object registers the path as an object containing parametric code (`parametrics::class` = `CodeObject`) and then under the CodeObject namespace sets the function code and expected state.
+
+- `COMPOSED_LOCAL_PRIMITIVE` the entire subtree at the code object parent is passed
+- `COMPOSED_FULL_TREE` the entire model tree is provided; needed to resolve the reference to the repeated element
+- `UNCOMPOSED_LAYER` the function outputs a new IFCx layer that is to be appended to the layerstack. In the future it would likely be possible to save such computed layers to disk in order to "bake" them into explicit data.
+
+The second object defines contextual variables for that are read by the script. Because these are regular ifcx attributes and because the script operates on post-composition data, these attributes can come from other layers as well and therefore authoring tools can exchange procedural logic where end-users can supply their inputs in their own layers.
+
+- `advanced_properties::spacing` spacing between the elements
+- `advanced_properties::repeating_element` a reference to the path of the element that is to be instantiated multiple times along the alignment curve
 
 ```json
-
+{
+    "path": "2c7c16de-dd62-46ab-9e6a-6d903fc48467",
+    "attributes": {
+        "parametrics::class": {
+            "code": "CodeObject",
+            "uri": "-"
+        },
+        "parametrics::CodeObject": {
+            "name": "RepeatElements",
+            "code": "function RepeatElements(t,e,n){const a=(t,e,n=void 0)=>t&&t.attributes&&e in t.attributes?t.attributes[e]:n,r=t=>e=>a(e,'bsi::ifc::class::code')===t;function o(t,e,n,a){const r=Math.cos(a),o=Math.sin(a);return[[r,o,0,0],[-o,r,0,0],[0,0,1,0],[t,e,n,1]]}const i=a(t,'advanced_properties::spacing',1),s=a(t,'advanced_properties::repeating_element::ref',void 0),...",
+            "input": [
+                "COMPOSED_LOCAL_PRIMITIVE",
+                "COMPOSED_FULL_TREE"
+            ],
+            "output": [
+                "UNCOMPOSED_LAYER"
+            ]
+        }
+    }
+},
+{
+    "path": "2c7c16de-dd62-46ab-9e6a-6d903fc48467",
+    "attributes": {
+        "advanced_properties::spacing": 5.0,
+        "advanced_properties::repeating_element": {
+            "ref": "a6601de8-4da6-4df9-ac6d-d9bab47195ba/Bar"
+        }
+    }
+}
 ```
 
 The function is minified so that it fits in a single line string (`npx terser fn.js -o fnm.js -c -m -f quote_style=1`).
